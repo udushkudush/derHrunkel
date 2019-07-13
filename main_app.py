@@ -4,18 +4,17 @@ from PySide2 import QtCore, QtWidgets
 import re
 import pymel.core as pm
 import maya.cmds as cmds
-
-# -*- coding: utf-8 -*-
-
-from PySide2 import QtCore, QtWidgets
-import re
-import pymel.core as pm
-import maya.cmds as cmds
+import maya.mel as mel
 from os.path import split, splitext, normpath, join
 from shutil import copy2
 
 
 class DerHrunkel(QtWidgets.QMainWindow):
+    part = None
+    scene = None
+    user = None
+    version = None
+
     def __init__(self, parent=None):
         super(DerHrunkel, self).__init__(parent)
         self.start, self.end = int(pm.playbackOptions(q=1, min=1)), int(pm.playbackOptions(q=1, max=1))
@@ -35,17 +34,23 @@ class DerHrunkel(QtWidgets.QMainWindow):
         self.ui = HrunkelUi(camlist=self.current_camera, parent=self)
         self.setCentralWidget(self.ui)
 
+        self.ui.cameras.currentIndexChanged.connect(self.switch_view)
+
         # apply settings
-        self.apply_setting()
+        self.update_camera()
+        self.apply_camera_setting()
+        self.create_temp_panel()
 
-    # def check_path(self):
-    #     if os.path.exists(self.playblast_path):
-    #         copy2()
+    def update_camera(self):
+        self.current_camera = pm.PyNode(self.ui.cameras.currentText())
+        # print('>>> ', self.current_camera)
 
-    def apply_setting(self):
+    def apply_camera_setting(self):
         """apply setting for camera, render resolution, viweport settings etc"""
-        x = self.ui.cameras.currentText()
-        camera = pm.PyNode(x)
+        # x = self.ui.cameras.currentText()
+        # camera = pm.PyNode(x)
+        print('::: {}'.format(self.current_camera))
+        camera = self.current_camera
         dr = pm.PyNode('defaultResolution')
         dr.pixelAspect.set(1)
         dr.width.set(1920)
@@ -65,6 +70,13 @@ class DerHrunkel(QtWidgets.QMainWindow):
         camera.depthOfField.set(0)
         camera.displayGateMaskColor.set([0.01, 0.01, 0.01])
 
+    def create_temp_panel(self):
+        # create panel for playblast
+        self.viewport = pm.modelPanel(tearOff=True)
+        pm.setFocus(self.viewport)
+        pm.lookThru(self.current_camera)
+
+    def apply_panel_setting(self):
         # settings for panel
         viewport_setting = {
             "rendererName": "vp2Renderer",
@@ -83,18 +95,18 @@ class DerHrunkel(QtWidgets.QMainWindow):
             "selectionHiliteDisplay": False,
             "headsUpDisplay": True
         }
-        # settings for camera
-
-        # create panel for playblast
-        self.viewport = pm.modelPanel(tearOff=True)
-        pm.setFocus(self.viewport)
-        pm.lookThru(self.current_camera)
         pm.modelEditor(self.viewport, edit=True, allObjects=False)
         pm.modelEditor(self.viewport, edit=True, polymeshes=True)
         for key, value in viewport_setting.iteritems():
             pm.modelEditor(self.viewport, edit=True, **{key: value})
 
         self.setup_huds()
+
+    def switch_view(self):
+        self.update_camera()
+        self.apply_camera_setting()
+        pm.setFocus(self.viewport)
+        pm.lookThru(self.current_camera)
 
     def setup_huds(self):
         data = {'objectDetailsVisibility': 'ToggleObjectDetails;',
@@ -127,9 +139,28 @@ class DerHrunkel(QtWidgets.QMainWindow):
         except:
             pass
 
+        cmds.headsUpDisplay('HUD_partNum',
+                            section=5, block=0, blockSize='medium', label='Part:',
+                            dfs='small', labelFontSize='small', command=lambda: self.part)
+
+        cmds.headsUpDisplay('HUD_sceneNum',
+                            section=6, block=0, blockSize='medium', label='Scene:',
+                            dfs='small', labelFontSize='small', command=lambda: self.scene)
+
+        cmds.headsUpDisplay('HUD_user',
+                            section=0, block=0, blockSize='medium', label='User:',
+                            dfs='small', labelFontSize='small', command=lambda: self.user)
+
+        cmds.headsUpDisplay('HUD_version',
+                            section=4, block=0, blockSize='medium', label='ver:',
+                            dfs='small', labelFontSize='small', command=lambda: self.version)
+
     def get_path(self):
         """where to store video file"""
         pass
+
+    def define_variables(self):
+        pat = re.compile(r"(part\d{2})_(s[ch]\d{,3})")
 
     def publish(self):
         """publish playblast video to server"""
@@ -142,11 +173,15 @@ class HrunkelUi(QtWidgets.QWidget):
 
         ml = QtWidgets.QGridLayout(self)
         self.cameras = QtWidgets.QComboBox(self)
+        self.cameras.setObjectName('camera_list')
+        self.cameras.setMinimumHeight(20)
         for c in camlist:
             # text = c.nodeName().replace('Shape', '').replace('shape', '')
             self.cameras.addItem(c.nodeName())
 
         self.create_camera = QtWidgets.QPushButton(self)
+        self.create_camera.setObjectName('create_camera')
+        self.create_camera.setMinimumHeight(20)
         self.output = QtWidgets.QLineEdit(self)
 
         self.playblast = QtWidgets.QPushButton(self)
